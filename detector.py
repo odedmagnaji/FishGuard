@@ -3,67 +3,79 @@ from urllib.parse import urlparse
 
 class PhishingDetector:
     def __init__(self):
-        # מותגים ישראלים רגישים והדומיינים הרשמיים שלהם
+        # מותגים ישראליים רגישים והדומיינים הרשמיים שלהם
         self.official_brands = {
             "כביש 6": ["kvish6.co.il"],
-            "kvish 6": ["kvish6.co.il"],
             "דואר": ["israelpost.co.il"],
             "חברת החשמל": ["iec.co.il"],
-            "מס הכנסה": ["gov.il"],
             "ביט": ["bitpay.co.il"],
-            "bit": ["bitpay.co.il"],
-            "פייפאל": ["paypal.com"],
-            "paypal": ["paypal.com"]
+            "מס הכנסה": ["gov.il"]
         }
         
-        self.suspicious_tlds = ['.vip', '.top', '.xyz', '.work', '.info', '.live', '.online', '.site', '.org'] # הוספנו .org כחשוד בהודעות SMS
-        self.shorteners = ["bit.ly", "t.co", "tinyurl.com", "rebrand.ly", "cutt.ly", "qrcd.org", "tiny.one"]
+        # שירותי קיצור לינקים נפוצים (כולל did.li הישראלי)
+        self.shorteners = ["did.li", "bit.ly", "t.co", "tinyurl", "qrcd.org", "tiny.one", "short.io"]
+        
+        # מילון "נורות אדומות" - מילים שמעלות את רמת החשד
+        self.red_flags = {
+            "מיידי": 20,
+            "אזהרה": 20,
+            "חוב": 15,
+            "הליכים משפטיים": 30,
+            "כפל תשלום": 25,
+            "השעיה": 20,
+            "פעולה נדרשת": 15,
+            "נחסם": 20,
+            "יתרה פתוחה": 20
+        }
+
+    def extract_url(self, text):
+        """מזהה קישורים בטקסט גם אם הם ללא http/https"""
+        url_pattern = r'(?:https?://)?(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/\S*)?)'
+        match = re.search(url_pattern, text)
+        return match.group(0) if match else None
 
     def analyze(self, text, sender_number=""):
         score = 0
         reasons = []
         text_lower = text.lower()
         
-        # 1. בדיקת התאמת מותג ללינק (התיקון הכי חשוב!)
-        url_match = re.search(r'http[s]?://[^\s]+', text)
-        url = url_match.group(0) if url_match else ""
-        domain = urlparse(url).netloc.lower() if url else ""
-
-        for brand, official_domains in self.official_brands.items():
-            if brand in text_lower:
-                # אם המותג מוזכר אבל הלינק לא מכיל את הדומיין הרשמי
-                is_official = any(off in domain for off in official_domains)
-                if url and not is_official:
-                    score += 70
-                    reasons.append(f"שימוש בשם המותג '{brand}' עם קישור שאינו האתר הרשמי")
-
-        # 2. זיהוי מילות לחץ ודחיפות ישראליות
-        urgency_phrases = ["טיפול משפטי", "חוב", "יתרה פתוחה", "שטרם הוסדרה", "תשלום מיידי", "נחסם", "פעולה נדרשת"]
-        for phrase in urgency_phrases:
-            if phrase in text:
-                score += 25
-                reasons.append(f"שימוש בביטוי לחץ/איום: '{phrase}'")
-                break
-
-        # 3. ניתוח הקישור
+        url = self.extract_url(text)
+        domain = ""
         if url:
-            # בדיקת שירותי קיצור (כולל qrcd.org)
-            for sh in self.shorteners:
-                if sh in domain:
-                    score += 35
-                    reasons.append(f"שימוש בשירות הסתרת קישורים ({sh})")
-            
-            # בדיקת סיומות חשודות
-            for tld in self.suspicious_tlds:
-                if domain.endswith(tld):
-                    score += 20
-                    reasons.append(f"סיומת דומיין חשודה ({tld})")
+            # הפיכת הקישור לפורמט ש-urlparse מבין כדי לחלץ דומיין
+            full_url = url if url.startswith("http") else "http://" + url
+            try:
+                domain = urlparse(full_url).netloc.lower()
+            except:
+                domain = ""
 
-        # 4. ניתוח מספר השולח (אם לא ישראלי וההודעה בעברית)
+        # 1. ניתוח רמת דחיפות (לוגיקה כללית)
+        for phrase, points in self.red_flags.items():
+            if phrase in text:
+                score += points
+                reasons.append(f"נמצא ביטוי מחשיד: '{phrase}'")
+
+        # 2. זיהוי התחזות למותג (כביש 6, ביט וכו')
+        for brand, official_domains in self.official_brands.items():
+            if brand in text:
+                if url:
+                    is_official = any(off in domain for off in official_domains)
+                    if not is_official:
+                        score += 65 # ציון גבוה מאוד על חוסר התאמה
+                        reasons.append(f"חשד להתחזות: הודעה בשם '{brand}' עם קישור לא רשמי ({domain})")
+                else:
+                    score += 15 # מותג רגיש מוזכר ללא לינק
+
+        # 3. זיהוי שימוש במקצרי לינקים
+        if domain and any(sh in domain for sh in self.shorteners):
+            score += 30
+            reasons.append(f"שימוש בקיצור דרך ({domain}) להסתרת היעד הסופי")
+
+        # 4. בדיקת מספר השולח (אם ההודעה בעברית והמספר מחו"ל)
         if sender_number and not sender_number.startswith('whatsapp:+972'):
             if bool(re.search(r'[א-ת]', text)):
                 score += 40
-                reasons.append("הודעה בעברית ממספר טלפון שאינו ישראלי")
+                reasons.append("הודעה בעברית שהתקבלה ממספר טלפון שאינו ישראלי")
 
         final_score = min(score, 100)
         return {
