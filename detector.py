@@ -3,7 +3,6 @@ from urllib.parse import urlparse
 
 class PhishingDetector:
     def __init__(self):
-        # מותגים ישראליים רשמיים
         self.official_brands = {
             "כביש 6": ["kvish6.co.il"],
             "דואר": ["israelpost.co.il"],
@@ -12,34 +11,33 @@ class PhishingDetector:
             "מס הכנסה": ["gov.il"]
         }
         
-        # רשימת מקצרי קישורים ודומיינים חשודים (הוספתי את weedil ו-1d.is)
         self.shorteners = ["did.li", "bit.ly", "t.co", "tinyurl", "qrcd.org", "f4u.biz", "lik5.vip", "1d.is", "weedil"]
         
-        # סיווג הודעות (יועץ אבטחה)
+        # סיווג הודעות - הלוואות עברו ל-DANGER
         self.categories = {
+            "LOAN": {
+                "keywords": ["הלוואה", "מיידית", "150000", "בחשבון תוך יום", "הלוואות", "אשראי לכולם"],
+                "level": "DANGER",
+                "label": "🛑 חשד להונאת הלוואה / שוק אפור",
+                "warning": "זהירות! הודעות המציעות הלוואות מהירות הן לעיתים קרובות ניסיונות פישינג לגניבת פרטי אשראי או הונאות של השוק האפור. מומלץ מאוד לא להזין פרטים!"
+            },
             "ILLEGAL_TRADE": {
-                "keywords": ["מבצע אש", "שקיות", "בוטיק", "משלוחים לכל הארץ", "קנאביס", "וויד", "weed"],
+                "keywords": ["מבצע אש", "שקיות", "בוטיק", "קנאביס", "וויד", "weed"],
                 "level": "DANGER",
                 "label": "🚫 חשד לסחר בחומרים אסורים / עוקץ",
-                "warning": "זהירות! ההודעה נראית כהצעה למכירת חומרים אסורים. מעבר לעובדה שמדובר בעבירה על החוק, קישורים אלו משמשים לעיתים קרובות כ'עוקץ' (גניבת כסף ללא תמורה) או לגניבת פרטים אישיים."
-            },
-            "LOAN": {
-                "keywords": ["הלוואה", "מיידית", "150000", "בחשבון תוך יום", "הלוואות"],
-                "level": "ALERT",
-                "label": "💰 הצעה פיננסית",
-                "warning": "זוהה תוכן של הלוואה חוץ-בנקאית. שים לב ששירותים אלו לעיתים אינם מפוקחים ועלולים לכלול ריביות גבוהות."
+                "warning": "זהירות! הצעה לסחר בחומרים אסורים. קישורים אלו משמשים לרוב כ'עוקץ' כספי או לגניבת פרטים אישיים."
             },
             "TAX": {
-                "keywords": ["החזר מס", "בדיקה ללא תשלום", "החזר ממוצע", "בדיקת זכאות"],
+                "keywords": ["החזר מס", "בדיקה ללא תשלום", "החזר ממוצע"],
                 "level": "ALERT",
                 "label": "📑 פרסומת להחזרי מס",
-                "warning": "זוהה שירות שיווקי להחזרי מס. מומלץ לוודא את זהות החברה לפני מסירת פרטים אישיים."
+                "warning": "זוהה שירות שיווקי. היזהרו ממסירת מסמכים רגישים לגורם שאינו מוכר ומפוקח."
             },
             "DONATION": {
-                "keywords": ["מצווה", "חב״ד", "תרומה", "הגרלה", "מגדלור", "זכות", "עמותה"],
+                "keywords": ["מצווה", "חב״ד", "תרומה", "הגרלה", "מגדלור", "זכות"],
                 "level": "INFO",
                 "label": "🙏 בקשת תרומה או סיוע",
-                "warning": "ההודעה נראית כמו בקשה לתרומה או השתתפות בהגרלה. וודאו שהגוף המבקש מוכר לכם."
+                "warning": "ההודעה נראית כבקשת תרומה. שימו לב שגם בתרומות קיימים ניסיונות התחזות - ודאו את זהות העמותה."
             }
         }
 
@@ -62,24 +60,24 @@ class PhishingDetector:
             try: domain = urlparse(full_url).netloc.lower()
             except: domain = ""
 
-        # 1. בדיקת קטגוריות תוכן (כולל הסחר הלא חוקי החדש)
+        # 1. בדיקת קטגוריות
         for cat_id, data in self.categories.items():
             if any(key in text for key in data['keywords']):
                 found_category = data
-                if data['level'] == "DANGER": score += 80 # מקפיץ ישר לסכנה
+                if data['level'] == "DANGER": score += 60 # מקפיץ לסכנה
                 break
 
-        # 2. זיהוי התחזות (למשל אם כתבו "דואר" בהודעת סמים)
+        # 2. זיהוי התחזות
         for brand, official_domains in self.official_brands.items():
             if brand in text and url:
                 if not any(off in domain for off in official_domains):
                     score += 70
                     reasons.append(f"חשד להתחזות ל'{brand}'")
 
-        # 3. ניקוד על בסיס דומיין וקיצורי דרך
+        # 3. קישורים מקוצרים מוסיפים חשד
         if domain and any(sh in domain for sh in self.shorteners):
             score += 30
-            reasons.append(f"שימוש בקישור חשוד או מקוצר ({domain})")
+            reasons.append("שימוש בקישור מקוצר/חשוד")
 
         status = "SAFE"
         if score >= 45: status = "DANGER"
