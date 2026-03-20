@@ -1,10 +1,10 @@
 import os
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
-from detector import PhishingDetector
+from detector import FishingDetector # שימוש בשם החדש
 
 app = Flask(__name__)
-detector = PhishingDetector()
+detector = FishingDetector()
 
 def log_activity(sender, message, status, score):
     with open("fishing_logs.txt", "a", encoding="utf-8") as f:
@@ -35,7 +35,7 @@ def whatsapp_bot():
         reply.body(
             f"❌ *זהירות! זוהה דפוס של הונאה*\n{reasons_text}\n\n"
             f"🛑 **המלצה:** אל תלחצו על הקישור ואל תמסרו פרטים אישיים או כספיים. "
-            f"זה נראה כמו ניסיון דייג (Phishing) או עוקץ."
+            f"זה נראה כמו ניסיון דייג (Fishing) או עוקץ."
         )
         log_activity(sender_number, incoming_msg, status, analysis['score'])
         
@@ -56,7 +56,7 @@ def whatsapp_bot():
     else:
         reply.body(
             "🐟 לא הצלחתי לזהות קישור או כוונה מיוחדת בהודעה.\n"
-            "אני יודע לנתח הודעות שכוללות כתובות אינטרנט. אם זו הודעה חשודה, העבירו אותה אלי במלואו."
+            "אני מנתח הודעות שכוללות כתובות אינטרנט. אם זו הודעה חשודה, העבירו אותה אלי במלואו."
         )
 
     return str(resp)
