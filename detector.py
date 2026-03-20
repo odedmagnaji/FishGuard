@@ -1,7 +1,7 @@
 import re
 from urllib.parse import urlparse
 
-class PhishingDetector:
+class FishingDetector:
     def __init__(self):
         # מותגים רשמיים - לזיהוי התחזות ישירה
         self.official_brands = {
@@ -18,14 +18,14 @@ class PhishingDetector:
             "lik5.vip", "1d.is", "vip", "shop", "biz", "online", "weedil"
         ]
 
-        # תבנית א: מילים שיווקיות/כספיות אגרסיביות
+        # תבנית א: מילים שיווקיות/כספיות אגרסיביות (הבטחות לרווח)
         self.marketing_buzzwords = [
             "החזר", "כסף", "₪", "ש\"ח", "בדיקה", "זכאות", "ללא עלות", "ללא תשלום", 
             "הלוואה", "אשראי", "ריבית", "השקעה", "נדל\"ן", "דירה", "רווח", "תשואה",
             "הזדמנות", "בלעדי", "מבצע", "מתנה", "בונוס", "הגרלה", "פרס", "שקיות"
         ]
 
-        # תבנית ב: מילים שמעידות על לחץ ודחיפות
+        # תבנית ב: מילים שמעידות על לחץ ודחיפות (שיטות דייג פסיכולוגי)
         self.urgency_buzzwords = [
             "מיידי", "מהר", "תמהרו", "עכשיו", "אחרון", "מוגבל", "דחוף", 
             "אזהרה", "חוב", "עיקול", "משפטי", "חובה", "מיידית"
@@ -43,7 +43,7 @@ class PhishingDetector:
         text_lower = text.lower()
         url = self.extract_url(text)
         
-        # 1. ניתוח תוכן גנרי (הבטחות כספיות)
+        # 1. ניתוח תוכן גנרי (זיהוי "ריח" של הונאה)
         found_marketing = [word for word in self.marketing_buzzwords if word in text]
         if len(found_marketing) >= 2:
             score += 35
@@ -60,7 +60,7 @@ class PhishingDetector:
             score += 15
             reasons.append("הודעה הכוללת סכומי כסף או מספרים גבוהים")
 
-        # 4. ניתוח הקישור
+        # 4. ניתוח הקישור (ה"חכה")
         if url:
             full_url = url if url.startswith("http") else "http://" + url
             try:
@@ -96,5 +96,5 @@ class PhishingDetector:
         return {
             "status": status,
             "score": min(score, 100),
-            "reasons": list(set(reasons)) # מניעת כפילויות
+            "reasons": list(set(reasons))
         }
