@@ -3,45 +3,25 @@ from urllib.parse import urlparse
 
 class PhishingDetector:
     def __init__(self):
+        # מותגים רשמיים (נשאר לזיהוי התחזות ישירה)
         self.official_brands = {
-            "כביש 6": ["kvish6.co.il"],
-            "דואר": ["israelpost.co.il"],
-            "חברת החשמל": ["iec.co.il"],
-            "ביט": ["bitpay.co.il"],
-            "מס הכנסה": ["gov.il"]
+            "כביש 6": ["kvish6.co.il"], "דואר": ["israelpost.co.il"],
+            "חברת החשמל": ["iec.co.il"], "ביט": ["bitpay.co.il"], "מס הכנסה": ["gov.il"]
         }
         
-        self.shorteners = ["did.li", "bit.ly", "t.co", "tinyurl", "qrcd.org", "f4u.biz", "lik5.vip", "1d.is", "weedil"]
-        
-        # סיווג הודעות - הלוואות עברו ל-DANGER
-        self.categories = {
-            "LOAN": {
-                "keywords": ["הלוואה", "מיידית", "150000", "בחשבון תוך יום", "הלוואות", "אשראי לכולם"],
-                "level": "DANGER",
-                "label": "🛑 חשד להונאת הלוואה / שוק אפור",
-                "warning": "זהירות! הודעות המציעות הלוואות מהירות הן לעיתים קרובות ניסיונות פישינג לגניבת פרטי אשראי או הונאות של השוק האפור. מומלץ מאוד לא להזין פרטים!"
-            },
-            "ILLEGAL_TRADE": {
-                "keywords": ["מבצע אש", "שקיות", "בוטיק", "קנאביס", "וויד", "weed"],
-                "level": "DANGER",
-                "label": "🚫 חשד לסחר בחומרים אסורים / עוקץ",
-                "warning": "זהירות! הצעה לסחר בחומרים אסורים. קישורים אלו משמשים לרוב כ'עוקץ' כספי או לגניבת פרטים אישיים."
-            },
-            "TAX": {
-                "keywords": ["החזר מס", "בדיקה ללא תשלום", "החזר ממוצע"],
-                "level": "ALERT",
-                "label": "📑 פרסומת להחזרי מס",
-                "warning": "זוהה שירות שיווקי. היזהרו ממסירת מסמכים רגישים לגורם שאינו מוכר ומפוקח."
-            },
-            "DONATION": {
-                "keywords": ["מצווה", "חב״ד", "תרומה", "הגרלה", "מגדלור", "זכות"],
-                "level": "INFO",
-                "label": "🙏 בקשת תרומה או סיוע",
-                "warning": "ההודעה נראית כבקשת תרומה. שימו לב שגם בתרומות קיימים ניסיונות התחזות - ודאו את זהות העמותה."
-            }
-        }
+        self.shorteners = ["did.li", "bit.ly", "t.co", "tinyurl", "qrcd.org", "f4u.biz", "lik5.vip", "1d.is", "vip", "shop", "biz"]
 
-        self.red_flags = {"מיידי": 15, "אזהרה": 15, "הליכים משפטיים": 25, "נחסם": 20}
+        # 1. מילים שמעידות על "הצעה מפתה מדי" או שיווק אגרסיבי
+        self.marketing_buzzwords = [
+            "החזר", "כסף", "₪", "ש\"ח", "בדיקה", "זכאות", "ללא עלות", "ללא תשלום", 
+            "הלוואה", "אשראי", "ריבית", "השקעה", "נדל\"ן", "דירה", "רווח", "תשואה",
+            "הזדמנות", "בלעדי", "מבצע", "מתנה", "בונוס", "הגרלה", "פרס"
+        ]
+
+        # 2. מילים שמעידות על לחץ ודחיפות
+        self.urgency_buzzwords = [
+            "מיידי", "מהר", "תמהרו", "עכשיו", "אחרון", "מוגבל", "דחוף", "אזהרה", "חוב", "עיקול", "משפטי"
+        ]
 
     def extract_url(self, text):
         url_pattern = r'(?:https?://)?(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/\S*)?)'
@@ -51,41 +31,61 @@ class PhishingDetector:
     def analyze(self, text, sender_number=""):
         score = 0
         reasons = []
-        found_category = None
-        
+        text_lower = text.lower()
         url = self.extract_url(text)
-        domain = ""
+        
+        # --- שלב א: ניתוח תוכן גנרי ---
+        
+        # חיפוש מילים שיווקיות/כספיות
+        found_marketing = [word for word in self.marketing_buzzwords if word in text]
+        if len(found_marketing) >= 2:
+            score += 30
+            reasons.append(f"זוהתה תבנית של הצעה שיווקית/כספית ({', '.join(found_marketing[:2])})")
+
+        # חיפוש מילות לחץ
+        found_urgency = [word for word in self.urgency_buzzwords if word in text]
+        if found_urgency:
+            score += 25
+            reasons.append("שימוש במילות לחץ או דחיפות")
+
+        # חיפוש סכומי כסף (מספרים גדולים)
+        if re.search(r'\d{3,}', text):
+            score += 15
+            reasons.append("הודעה הכוללת סכומים או מספרים גבוהים")
+
+        # --- שלב ב: ניתוח הקישור והשולח ---
+
         if url:
             full_url = url if url.startswith("http") else "http://" + url
             try: domain = urlparse(full_url).netloc.lower()
             except: domain = ""
+            
+            # אם יש לינק מקוצר + תוכן שיווקי = חשד גבוה מאוד
+            if any(sh in domain for sh in self.shorteners):
+                score += 35
+                reasons.append("שימוש בקישור מקוצר/חשוד להסתרת היעד")
+            
+            # בדיקת התחזות למותגים
+            for brand, official_domains in self.official_brands.items():
+                if brand in text:
+                    if not any(off in domain for off in official_domains):
+                        score += 50
+                        reasons.append(f"חשד להתחזות ל-{brand}")
 
-        # 1. בדיקת קטגוריות
-        for cat_id, data in self.categories.items():
-            if any(key in text for key in data['keywords']):
-                found_category = data
-                if data['level'] == "DANGER": score += 60 # מקפיץ לסכנה
-                break
+        # --- שלב ג: הצלבת נתונים ---
+        # אם זה מספר לא מוכר (מחוץ לישראל) עם עברית שיווקית
+        if sender_number and not sender_number.startswith('whatsapp:+972'):
+            if len(found_marketing) > 0:
+                score += 30
+                reasons.append("הודעה שיווקית בעברית ממספר שאינו ישראלי")
 
-        # 2. זיהוי התחזות
-        for brand, official_domains in self.official_brands.items():
-            if brand in text and url:
-                if not any(off in domain for off in official_domains):
-                    score += 70
-                    reasons.append(f"חשד להתחזות ל'{brand}'")
-
-        # 3. קישורים מקוצרים מוסיפים חשד
-        if domain and any(sh in domain for sh in self.shorteners):
-            score += 30
-            reasons.append("שימוש בקישור מקוצר/חשוד")
-
+        # קביעת סטטוס לפי ציון מצטבר
         status = "SAFE"
-        if score >= 45: status = "DANGER"
-        elif found_category: status = found_category['level']
+        if score >= 60: status = "DANGER"
+        elif score >= 35: status = "ALERT"
         
         return {
             "status": status,
             "score": min(score, 100),
-            "reasons": reasons,
-            "category_data": found_category
+            "reasons": reasons
         }
